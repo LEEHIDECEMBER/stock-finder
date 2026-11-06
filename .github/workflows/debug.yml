@@ -1,0 +1,30 @@
+name: debug-kr
+on: workflow_dispatch
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas finance-datareader yfinance lxml requests pykrx
+      - name: probe
+        run: |
+          python - <<'PY'
+          import FinanceDataReader as fdr, pandas as pd, traceback
+          pd.set_option('display.width',250); pd.set_option('display.max_columns',30)
+          print('FDR', fdr.__version__)
+          for k in ['KRX','KOSPI','KOSDAQ','KRX-DESC']:
+              try:
+                  df=fdr.StockListing(k); print('==',k,df.shape); print(df.columns.tolist()); print(df.head(3).to_string())
+                  if 'Market' in df: print(df['Market'].value_counts().head())
+              except Exception: print('==',k,'FAIL'); traceback.print_exc()
+          try:
+              df=fdr.DataReader('005930','2025-11-01'); print('DR 005930', df.shape, df.tail(2).to_string())
+          except Exception: traceback.print_exc()
+          import yfinance as yf
+          try:
+              px=yf.download(['005930.KS','035720.KS','247540.KQ'],period='13mo',progress=False,auto_adjust=True)
+              print('yf', px['Close'].tail(2).to_string())
+              i=yf.Ticker('005930.KS').info; print({k:i.get(k) for k in ['trailingPE','priceToBook','returnOnEquity','dividendRate','marketCap','sector','industry']})
+          except Exception: traceback.print_exc()
+          PY
