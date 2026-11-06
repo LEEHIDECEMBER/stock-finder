@@ -91,6 +91,9 @@ header h1{font-size:24px;margin:0;font-weight:800;letter-spacing:-.5px}
 .btn.primary{background:var(--accent);color:var(--on-accent)}
 .btn.warn{color:var(--up)}
 .empty{color:var(--mute);font-size:14px;text-align:center;padding:14px 0}
+.delay{font-size:12px;color:var(--mute);line-height:1.55;margin:16px 2px 0;padding:10px 12px;border-radius:12px;background:var(--card2);word-break:keep-all}
+.delay:empty{display:none}
+.delay b{color:var(--sub);font-weight:700}
 .res-h{display:flex;align-items:center;gap:8px;margin:18px 2px 10px}
 .res-h b{font-size:18px}
 .res-h .sp{flex:1}
@@ -200,6 +203,7 @@ a.link{display:block;text-align:center;padding:12px;border-radius:12px;backgroun
         <button class="btn" data-act="clearConds" style="flex:.6">초기화</button>
       </div>
     </div>
+    <div class="delay" id="delayNote"></div>
     <div class="res-h">
       <b id="resCount">0개</b><span class="sp"></span>
       <select class="sort" id="sortSel"></select>
@@ -268,6 +272,7 @@ const FIREBASE_CONFIG = {
   appId: "1:736568386324:web:4c8f8128acff5517ed9801",
 };
 const FB_VER = '13.2.0';
+const DATA_URL = 'https://raw.githubusercontent.com/LEEHIDECEMBER/stock-finder/data/data.json';
 
 /* ===== 상수 ===== */
 const MARKETS = [['KOSPI','코스피'],['KOSDAQ','코스닥'],['SP500','S&P500']];
@@ -382,12 +387,17 @@ function condSummary(p){
 /* ===== 데이터 ===== */
 async function loadData(){
   let raw = null, sample = false;
-  try{
-    const r = await fetch('data.json?t='+Date.now(), {cache:'no-store'});
-    if(!r.ok) throw new Error(r.status);
-    raw = await r.json();
-    if(!raw.rows || !raw.rows.length) throw new Error('empty');
-  }catch(e){
+  // 1) data 브랜치의 최신 데이터(장중 1시간마다 갱신) → 2) 이 사이트의 data.json(하루 1번) 순서로 시도
+  for (const url of [DATA_URL, 'data.json']){
+    try{
+      const r = await fetch(url+'?t='+Date.now(), {cache:'no-store'});
+      if(!r.ok) throw new Error(r.status);
+      const j = await r.json();
+      if(!j.rows || !j.rows.length) throw new Error('empty');
+      raw = j; break;
+    }catch(e){ console.warn('data', url, e); }
+  }
+  if (!raw){
     raw = JSON.parse($('#sample-data').textContent.replace(/\/\*SAMPLE_(START|END)\*\//g, ''));
     sample = true;
   }
@@ -432,10 +442,20 @@ function runFilter(){
 }
 
 /* ===== 렌더: 찾기 ===== */
+// '2026-11-07T14:23' + 장중 → '14:23 장중' (오늘이 아니면 '11/07 14:23 장중'), 날짜만 → '11/06 종가'
+function timeLabel(t, live){
+  if (!t) return '-';
+  const md = t.slice(5,10).replace('-','/');
+  if (!live) return md + ' 종가';
+  const hm = t.slice(11,16);
+  return (t.slice(0,10) === today() ? hm : md+' '+hm) + ' 장중';
+}
 function renderTop(){
   const m = DATA.meta;
-  const d = (m.base_kr||m.updated||'').slice(5,10).replace('-','/');
-  $('#stamp').innerHTML = d ? `${esc(d)} 종가 기준<br>${nf(DATA.list.length)}종목` : '';
+  $('#stamp').innerHTML = m.sample ? '샘플 데이터' : `국내 ${esc(timeLabel(m.kr_time||m.base_kr, m.kr_live))}<br>미국 ${esc(timeLabel(m.us_time||m.base_us, m.us_live))}`;
+  $('#delayNote').innerHTML = m.sample ? '' :
+    `<b>시세는 장중 1시간마다 업데이트돼요.</b> 지금 보는 값은 실제 시세보다 최대 1시간 정도 늦을 수 있어요. ` +
+    `(국내 ${esc(timeLabel(m.kr_time||m.base_kr, m.kr_live))} · 미국 ${esc(timeLabel(m.us_time||m.base_us, m.us_live))})`;
   $('#banner').innerHTML = m.sample ? `<div class="banner">지금은 <b>가상의 샘플 데이터</b>로 보여 주고 있어요. GitHub Actions가 처음 실행되면 실제 데이터로 바뀌어요.</div>` : '';
 }
 function renderChips(){
@@ -543,8 +563,9 @@ function renderSettings(){
   const cnt = k => nf(DATA.list.filter(s=>s.m===k).length);
   $('#dataInfo').innerHTML = `
     <div class="row"><span>상태</span><span>${m.sample?'샘플 데이터':'실제 데이터'}</span></div>
-    <div class="row"><span>국내 기준일</span><span>${esc(m.base_kr||'-')}</span></div>
-    <div class="row"><span>미국 기준일</span><span>${esc(m.base_us||'-')}</span></div>
+    <div class="row"><span>국내 시세</span><span>${esc(timeLabel(m.kr_time||m.base_kr, m.kr_live))} 기준</span></div>
+    <div class="row"><span>미국 시세</span><span>${esc(timeLabel(m.us_time||m.base_us, m.us_live))} 기준</span></div>
+    <div class="row"><span>업데이트 주기</span><span>장중 1시간마다 · 매일 아침 전체</span></div>
     <div class="row"><span>원/달러 환율</span><span>${m.usdkrw?nf(m.usdkrw,1)+'원':'-'}</span></div>
     <div class="row"><span>종목 수</span><span>코스피 ${cnt('KOSPI')} · 코스닥 ${cnt('KOSDAQ')} · S&P500 ${cnt('SP500')}</span></div>
     <div class="row"><span>국내 데이터</span><span>${m.kr_src==='nologin'?'기본 (배당·수급 없음)':m.kr_src==='krx'?'KRX 전체':'-'}</span></div>

@@ -542,6 +542,15 @@ def main():
         meta["base_us"], meta["usdkrw"] = old_meta.get("base_us"), old_meta.get("usdkrw")
     log("US rows", len(us))
 
+    # 앱에 보여 줄 기준 시각: 장중에 돌렸으면 '장중', 아니면 '종가'
+    now = datetime.now(KST)
+    if meta.get("base_kr"):
+        live = meta["base_kr"] == now.strftime("%Y-%m-%d") and (now.hour, now.minute) < (15, 40)
+        meta["kr_time"] = now.isoformat(timespec="minutes") if live else meta["base_kr"]
+        meta["kr_live"] = live
+    if meta.get("base_us"):
+        meta["us_time"], meta["us_live"] = meta["base_us"], False
+
     if not kr and not us:
         log("수집 전부 실패 - data.json을 바꾸지 않음")
         sys.exit(1)

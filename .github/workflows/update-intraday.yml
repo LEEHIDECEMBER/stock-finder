@@ -1,0 +1,54 @@
+name: 장중 시세 업데이트
+
+on:
+  schedule:
+    # 국내 장중: 한국 시간 평일 09:23 ~ 15:23 매시 + 장 마감 직후 15:53
+    - cron: '23 0-6 * * 1-5'
+    - cron: '53 6 * * 1-5'
+    # 미국 장중: 한국 시간 23:43 ~ 다음 날 05:43 (UTC 14:43 ~ 20:43)
+    - cron: '43 14-20 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '장 시간이 아니어도 실행 (kr / us / 빈칸)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data   # 아침 전체 업데이트와 겹치지 않게 순서대로
+  cancel-in-progress: false
+
+jobs:
+  intraday:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 최신 data.json 가져오기 (data 브랜치)
+        run: |
+          git fetch --depth=1 origin data && git show origin/data:data.json > data.json || echo "data 브랜치 없음 - main의 data.json 사용"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: 장중 업데이트
+        run: python scripts/update_intraday.py
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+          FORCE_KR: ${{ github.event.inputs.force == 'kr' && '1' || '' }}
+          FORCE_US: ${{ github.event.inputs.force == 'us' && '1' || '' }}
+
+      - name: data 브랜치에 올리기 (최신 1개만 유지)
+        run: bash scripts/publish_data.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}

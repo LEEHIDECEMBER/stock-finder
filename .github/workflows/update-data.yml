@@ -36,7 +36,13 @@ jobs:
           KRX_ID: ${{ secrets.KRX_ID }}
           KRX_PW: ${{ secrets.KRX_PW }}
 
-      - name: data.json 커밋
+      - name: data 브랜치에 올리기 (앱이 읽는 최신 데이터)
+        run: bash scripts/publish_data.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+
+      - name: data.json 커밋 (하루 1번, 예비용)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
