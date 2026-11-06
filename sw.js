@@ -1,5 +1,5 @@
 // 서비스 워커: 앱 화면은 캐시해서 오프라인에서도 열리게, data.json은 항상 새로 받기(실패하면 캐시)
-const CACHE = 'stock-finder-v7';
+const CACHE = 'stock-finder-v8';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
