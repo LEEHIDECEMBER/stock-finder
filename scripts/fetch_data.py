@@ -57,7 +57,7 @@ THEMES = [
     ("bio", "바이오·헬스케어", ["의약", "바이오", "제약", "의료", "진단", r"Health ?care", "Biotech", "Drug", "Medical", "Diagnostics"], []),
     ("soft", "소프트웨어·인터넷", ["소프트웨어", "포털", "인터넷", "플랫폼", "클라우드", "Software", "Internet", "Information Technology Services"], []),
     ("game", "게임·엔터", ["게임", "엔터테인먼트", "음반", "오디오물", "영화", "방송 프로그램", "Entertainment", "Electronic Gaming", "Broadcasting"], []),
-    ("fin", "금융", ["은행", "증권", "보험", "신용카드", "여신", "저축기관", "금융 지원", "Financial", "Bank", "Insurance", "Capital Markets"], []),
+    ("fin", "금융", ["은행", "증권", "보험", "신용카드", "여신", "저축기관", "금융 지원", "금융지주", "신한지주", "KB금융", "Financial", "Bank", "Insurance", "Capital Markets"], []),
     ("defense", "방산·우주", ["무기", "방위", "항공기", "우주", "총포", "탄약", "Aerospace", "Defense"], []),
     ("ship", "조선·해운", ["선박", "조선", "해운", "해상 운송", "Marine Shipping"], []),
     ("energy", "에너지·전력", ["발전", "전력", "원자력", "원전", "석유", "정유", "가스", "태양광", "풍력", "변압기", "절연선",
