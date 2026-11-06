@@ -52,7 +52,7 @@ THEMES = [
     ("ai", "AI", ["인공지능", r"(?<![A-Za-z])AI(?![A-Za-z])", "HBM", "머신러닝", "딥러닝"],
      ["005930", "000660", "035420", "NVDA", "AMD", "AVGO", "MSFT", "GOOGL", "GOOG", "META", "AMZN",
       "ORCL", "PLTR", "SMCI", "ANET", "MU", "CRM", "NOW", "DELL", "VRT"]),
-    ("auto", "자동차", ["자동차", "Auto Manufacturers", "Auto Parts", "Automobile"], []),
+    ("auto", "자동차", [r"자동차(용 엔진| 제조| 신품| 차체| 재제조| ?부품)", "완성차", "Auto Manufacturers", "Auto Parts", "Automobile"], []),
     ("battery", "2차전지", ["이차전지", "2차전지", "축전지", "배터리", "양극재", "음극재", "전해액", "분리막", "리튬", "Lithium"], ["ALB"]),
     ("bio", "바이오·헬스케어", ["의약", "바이오", "제약", "의료", "진단", r"Health ?care", "Biotech", "Drug", "Medical", "Diagnostics"], []),
     ("soft", "소프트웨어·인터넷", ["소프트웨어", "포털", "인터넷", "플랫폼", "클라우드", "Software", "Internet", "Information Technology Services"], []),
@@ -322,8 +322,10 @@ def naver_per_roe():
             except Exception as e:
                 log("네이버 실패", sosok, page, e)
                 break
-            codes = re.findall(r'code=(\d{6})" class="tltle"', html)
+            codes = re.findall(r'code=(\d{6})"[^>]*class="tltle"', html)
             if not codes:
+                if page == 1:
+                    log("네이버 응답 확인", r.status_code, len(html), "tltle" in html, html[:200].replace("\n", " "))
                 break
             try:
                 tb = [t for t in pd.read_html(io.StringIO(html)) if "종목명" in t.columns][0]
