@@ -153,6 +153,16 @@ textarea.field{min-height:70px;resize:vertical}
 .row:last-child{border-bottom:0}
 .row span:first-child{color:var(--mute)}
 .note{font-size:12px;color:var(--mute);line-height:1.6}
+.me{display:flex;align-items:center;gap:12px}
+.me img,.me .av{width:44px;height:44px;border-radius:50%;flex-shrink:0;object-fit:cover}
+.me .av{display:flex;align-items:center;justify-content:center;background:var(--accent-soft);color:var(--accent);font-weight:800;font-size:18px}
+.me b{display:block;font-size:16px}
+.me small{display:block;color:var(--mute);font-size:12px;margin-top:2px}
+.gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:12px;border-radius:12px;background:var(--card);border:1px solid var(--line);font-weight:700;font-size:15px;color:var(--text)}
+.or{display:flex;align-items:center;gap:10px;color:var(--mute);font-size:12px;margin:16px 0 8px}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.linkbtn{display:block;margin:12px auto 0;color:var(--mute);font-size:13px;text-decoration:underline}
+.login-tip{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;color:var(--sub);line-height:1.5}
 .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 84px);transform:translateX(-50%) translateY(20px);opacity:0;
   background:var(--toast-bg);color:var(--toast-fg);padding:10px 16px;border-radius:999px;font-weight:700;font-size:14px;z-index:60;transition:.2s;pointer-events:none;white-space:nowrap}
 .toast.on{opacity:1;transform:translateX(-50%)}
@@ -201,6 +211,7 @@ a.link{display:block;text-align:center;padding:12px;border-radius:12px;backgroun
 
   <!-- 관심 -->
   <section class="view" id="v-watch">
+    <div id="watchLogin"></div>
     <div id="watchList"></div>
   </section>
 
@@ -211,9 +222,9 @@ a.link{display:block;text-align:center;padding:12px;border-radius:12px;backgroun
 
   <!-- 설정 -->
   <section class="view" id="v-settings">
+    <div class="card"><div class="sec-t">계정</div><div id="account"></div></div>
     <div class="card"><div class="sec-t">화면 모드</div><div class="chips" id="themeChips"></div></div>
     <div class="card"><div class="sec-t">데이터</div><div id="dataInfo"></div></div>
-    <div class="card"><div class="sec-t">계정 동기화</div><div id="account"></div></div>
     <div class="card">
       <div class="sec-t">백업</div>
       <div class="btn-row" style="margin-top:0">
@@ -532,19 +543,38 @@ function renderSettings(){
     <div class="row"><span>국내 데이터</span><span>${m.kr_src==='nologin'?'기본 (배당·수급 없음)':m.kr_src==='krx'?'KRX 전체':'-'}</span></div>
     <div class="row"><span>외국인·기관 수급</span><span>국내 종목만</span></div>
     <div class="row"><span>업데이트</span><span>${esc((m.updated||'-').replace('T',' ').slice(0,16))}</span></div>`;
-  const a = $('#account');
-  if (!FIREBASE_CONFIG){ a.innerHTML = `<div class="note">Firebase가 아직 연결되지 않아 이 기기에만 저장돼요. (index.html의 FIREBASE_CONFIG에 설정을 넣으면 켜져요)</div>`; return; }
-  if (!fb){ a.innerHTML = `<div class="note">연결 중…</div>`; return; }
+  $('#account').innerHTML = accountHTML();
+  renderWatchLogin();
+}
+function accountHTML(){
+  if (!FIREBASE_CONFIG) return `<div class="note">로그인 기능이 아직 준비 중이에요. 지금은 이 기기에만 저장돼요.</div>`;
+  if (!fb) return `<div class="note">연결 중…</div>`;
   if (fb.user){
-    a.innerHTML = `<div class="row"><span>로그인</span><span>${esc(fb.user.email)}</span></div>
-      <div class="note" style="margin-top:6px">저장한 조건과 관심종목이 계정에 자동으로 동기화돼요.</div>
+    const u = fb.user;
+    const via = (u.providerData[0]||{}).providerId==='google.com' ? 'Google 계정' : '이메일 계정';
+    const init = esc((u.displayName||u.email||'?').trim()[0].toUpperCase());
+    return `<div class="me">
+        ${u.photoURL ? `<img src="${esc(u.photoURL)}" alt="" referrerpolicy="no-referrer">` : `<span class="av">${init}</span>`}
+        <div><b>${esc(u.displayName || u.email)}</b><small>${esc(u.displayName ? u.email : '')}${u.displayName?' · ':''}${via}</small></div>
+      </div>
+      <div class="note" style="margin-top:10px">저장한 조건과 관심종목이 이 계정에 자동으로 저장돼요. 다른 기기에서 로그인해도 그대로 보여요.</div>
       <div class="btn-row"><button class="btn" data-act="logout">로그아웃</button></div>`;
-  } else {
-    a.innerHTML = `<input class="field" id="em" type="email" placeholder="이메일" autocomplete="username">
-      <input class="field" id="pw" type="password" placeholder="비밀번호" autocomplete="current-password">
-      <div class="btn-row"><button class="btn primary" data-act="login">로그인</button></div>
-      <div class="hint" id="loginMsg"></div>`;
   }
+  return `<div class="note" style="margin-bottom:12px">로그인하면 저장한 조건과 관심종목을 계정에 보관하고, 다른 기기에서도 이어서 쓸 수 있어요.</div>
+    <button class="gbtn" data-act="google">
+      <svg viewBox="0 0 48 48" width="20" height="20"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+      Google로 계속하기</button>
+    <div class="or"><span>또는 이메일</span></div>
+    <input class="field" id="em" type="email" placeholder="이메일" autocomplete="username" style="margin-top:0">
+    <input class="field" id="pw" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="current-password">
+    <div class="btn-row"><button class="btn primary" data-act="login">로그인</button><button class="btn" data-act="signup">회원가입</button></div>
+    <button class="linkbtn" data-act="resetpw">비밀번호를 잊었어요</button>
+    <div class="hint" id="loginMsg" style="text-align:center"></div>`;
+}
+function renderWatchLogin(){
+  const el = $('#watchLogin'); if (!el) return;
+  el.innerHTML = (FIREBASE_CONFIG && fb && !fb.user)
+    ? `<div class="card login-tip"><div>로그인하면 관심종목과 조건을<br>다른 기기에서도 볼 수 있어요</div><button class="btn-sm primary" data-act="goLogin">로그인</button></div>` : '';
 }
 function renderAll(){ renderTop(); renderFind(); renderWatch(); renderPresets(); renderSettings(); }
 
@@ -673,7 +703,13 @@ document.addEventListener('click', e => {
     case 'export': return exportBackup();
     case 'import': return $('#importFile').click();
     case 'login': return doLogin();
-    case 'logout': return fb && fb.A.signOut(fb.auth);
+    case 'signup': return doSignup();
+    case 'google': return doGoogle();
+    case 'resetpw': return doReset();
+    case 'goLogin': switchTab('settings'); setTimeout(()=>$('#account').scrollIntoView({behavior:'smooth',block:'center'}),50); return;
+    case 'logout':
+      if (!fb || !confirm('로그아웃할까요?\n저장한 조건과 관심종목은 계정에 남아 있고, 이 기기에서는 비워져요.')) return;
+      return fb.A.signOut(fb.auth).then(() => { presets = []; watch = []; saveUser(false); renderAll(); toast('로그아웃했어요'); });
   }
 });
 $('#dim').addEventListener('click', closeSheet);
@@ -726,6 +762,7 @@ async function initFirebase(){
     const auth = A.getAuth(app);
     const db = FS.initializeFirestore(app, {localCache: FS.persistentLocalCache()});
     fb = {A, FS, auth, db, user:null, unsub:null};
+    A.getRedirectResult(auth).then(r => { if (r && r.user) toast('로그인했어요'); }).catch(e => { switchTab('settings'); setTimeout(()=>authMsg(e), 300); });
     A.onAuthStateChanged(auth, u => {
       fb.user = u;
       if (fb.unsub){ fb.unsub(); fb.unsub = null; }
@@ -755,13 +792,51 @@ function cloudPush(now=false){
   const go = () => fb.FS.setDoc(userRef(), {presets, watch, updatedAt: fb.FS.serverTimestamp()}).catch(e=>console.warn('push', e));
   now ? go() : (pushTimer = setTimeout(go, 400));
 }
+const AUTH_ERR = {
+  'auth/invalid-credential':'이메일 또는 비밀번호가 맞지 않아요', 'auth/wrong-password':'이메일 또는 비밀번호가 맞지 않아요',
+  'auth/user-not-found':'가입되지 않은 이메일이에요', 'auth/invalid-email':'이메일 형식을 확인해 주세요',
+  'auth/email-already-in-use':'이미 가입된 이메일이에요. 로그인해 주세요', 'auth/weak-password':'비밀번호는 6자 이상이어야 해요',
+  'auth/too-many-requests':'시도가 너무 많아요. 잠시 후 다시 해 주세요', 'auth/network-request-failed':'인터넷 연결을 확인해 주세요',
+  'auth/popup-closed-by-user':'로그인 창이 닫혔어요', 'auth/cancelled-popup-request':'로그인 창이 닫혔어요',
+  'auth/unauthorized-domain':'이 주소는 로그인이 허용되지 않았어요 (Firebase 승인된 도메인 확인)',
+  'auth/account-exists-with-different-credential':'같은 이메일이 다른 방식으로 가입돼 있어요. 그 방식으로 로그인해 주세요',
+  'auth/operation-not-allowed':'이 로그인 방식이 꺼져 있어요 (Firebase에서 사용 설정 필요)',
+};
+function authMsg(e, fallback){ const m = $('#loginMsg'); const t = AUTH_ERR[e && e.code] || fallback || '문제가 생겼어요. 다시 시도해 주세요'; if (m) m.textContent = t; else toast(t); console.warn(e); }
+function readForm(){
+  const em = ($('#em')?.value||'').trim(), pw = $('#pw')?.value||'';
+  if (!em || !pw){ $('#loginMsg').textContent = '이메일과 비밀번호를 입력해 주세요'; return null; }
+  $('#loginMsg').textContent = '잠시만요…'; return {em, pw};
+}
 async function doLogin(){
-  const em = $('#em').value.trim(), pw = $('#pw').value;
-  const msg = $('#loginMsg');
-  if (!em || !pw){ msg.textContent = '이메일과 비밀번호를 입력해 주세요'; return; }
-  msg.textContent = '로그인 중…';
-  try{ await fb.A.signInWithEmailAndPassword(fb.auth, em, pw); toast('로그인했어요'); }
-  catch(e){ msg.textContent = '로그인 실패: 이메일 또는 비밀번호를 확인해 주세요'; }
+  const f = readForm(); if (!f) return;
+  try{ await fb.A.signInWithEmailAndPassword(fb.auth, f.em, f.pw); toast('로그인했어요'); }
+  catch(e){ authMsg(e); }
+}
+async function doSignup(){
+  const f = readForm(); if (!f) return;
+  try{ await fb.A.createUserWithEmailAndPassword(fb.auth, f.em, f.pw); toast('가입했어요. 환영해요!'); }
+  catch(e){ authMsg(e); }
+}
+async function doReset(){
+  const em = ($('#em')?.value||'').trim();
+  if (!em){ $('#loginMsg').textContent = '위에 이메일을 입력하고 다시 눌러 주세요'; return; }
+  try{ fb.auth.languageCode = 'ko'; await fb.A.sendPasswordResetEmail(fb.auth, em); $('#loginMsg').textContent = '비밀번호 재설정 메일을 보냈어요. 메일함을 확인해 주세요'; }
+  catch(e){ authMsg(e); }
+}
+// 홈 화면 앱(아이폰 standalone)에서는 팝업이 앱으로 돌아오지 못해서 리디렉션 방식을 쓴다
+const isStandalone = () => window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+async function doGoogle(){
+  const p = new fb.A.GoogleAuthProvider();
+  p.setCustomParameters({prompt:'select_account'});
+  fb.auth.languageCode = 'ko';
+  try{
+    if (isStandalone()) { await fb.A.signInWithRedirect(fb.auth, p); return; }
+    await fb.A.signInWithPopup(fb.auth, p); toast('로그인했어요');
+  }catch(e){
+    if (e.code === 'auth/popup-blocked'){ try{ await fb.A.signInWithRedirect(fb.auth, p); }catch(e2){ authMsg(e2); } return; }
+    authMsg(e);
+  }
 }
 
 /* ===== 시작 ===== */
