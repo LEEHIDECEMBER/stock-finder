@@ -529,6 +529,7 @@ function renderSettings(){
     <div class="row"><span>미국 기준일</span><span>${esc(m.base_us||'-')}</span></div>
     <div class="row"><span>원/달러 환율</span><span>${m.usdkrw?nf(m.usdkrw,1)+'원':'-'}</span></div>
     <div class="row"><span>종목 수</span><span>코스피 ${cnt('KOSPI')} · 코스닥 ${cnt('KOSDAQ')} · S&P500 ${cnt('SP500')}</span></div>
+    <div class="row"><span>국내 데이터</span><span>${m.kr_src==='nologin'?'기본 (배당·수급 없음)':m.kr_src==='krx'?'KRX 전체':'-'}</span></div>
     <div class="row"><span>외국인·기관 수급</span><span>국내 종목만</span></div>
     <div class="row"><span>업데이트</span><span>${esc((m.updated||'-').replace('T',' ').slice(0,16))}</span></div>`;
   const a = $('#account');

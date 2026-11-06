@@ -2,11 +2,11 @@
 선호 주식 찾기 - 데이터 수집 스크립트
 GitHub Actions가 하루 한 번 실행해서 저장소 맨 위의 data.json을 새로 만든다.
 
-- 국내(코스피·코스닥): pykrx (KRX 정보데이터시스템)
-    · 기준일 시세·시총·PER/PBR/EPS/BPS/배당, 기간 등락률
-    · 최근 약 1년치 일별 종가·거래량 → 추세 지표 계산
-    · 최근 5거래일 외국인·기관 순매수
-  pykrx가 막히면 FinanceDataReader로 시세만
+- 국내(코스피·코스닥)
+  · KRX 로그인 정보(GitHub Secrets의 KRX_ID, KRX_PW)가 있으면 pykrx로 전부
+    (시세·시총·PER/PBR/EPS/BPS/배당, 기간 등락률, 1년치 일별 시세, 외국인·기관 순매수)
+  · 없거나 실패하면 로그인 없이: FinanceDataReader 종목 목록 + 야후 1년치 일별 시세
+    + 네이버 시가총액 페이지의 PER·ROE (PBR = PER × ROE ÷ 100). 배당·수급은 비어 있음
 - 미국(S&P500): FinanceDataReader/위키백과로 종목 목록, yfinance로 시세·재무지표
 - 한쪽 수집이 실패하면 예전 data.json의 그 시장 데이터를 그대로 둔다 (앱이 비지 않게)
 
@@ -27,9 +27,12 @@ import re
 import sys
 import time
 import traceback
+import warnings
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+
+warnings.filterwarnings("ignore")
 
 KST = timezone(timedelta(hours=9))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -143,7 +146,36 @@ def tech(close, volume=None):
     return out
 
 
-# ---------------------------------------------------------------- 국내
+def hist_returns(s):
+    """일별 종가 시리즈로 [1일, 1주, 1개월, 3개월, 6개월, 1년] 상승률"""
+    s = s.dropna()
+    s = s[s > 0]
+    if len(s) < 2:
+        return [None] * 6
+    last_d, last = s.index[-1], float(s.iloc[-1])
+    out = [round((last / float(s.iloc[-2]) - 1) * 100, 1)]
+    for days in WINDOWS.values():
+        past = s[s.index <= last_d - pd.Timedelta(days=days)]
+        out.append(round((last / float(past.iloc[-1]) - 1) * 100, 1) if len(past) else None)
+    return out
+
+
+def kr_desc():
+    """KRX-DESC: 업종(Industry)·주요제품(Products). 표시용 업종, 분야 판단용 글자"""
+    sectors, descs = {}, {}
+    try:
+        import FinanceDataReader as fdr
+        d = fdr.StockListing("KRX-DESC")
+        col = lambda c: d[c].fillna("").astype(str) if c in d else pd.Series("", index=d.index)
+        codes = d["Code"].astype(str)
+        sectors = dict(zip(codes, col("Industry")))
+        descs = dict(zip(codes, col("Industry") + " " + col("Products") + " " + col("Sector")))
+    except Exception as e:
+        log("KR 업종 정보 실패(무시)", e)
+    return sectors, descs
+
+
+# ---------------------------------------------------------------- 국내 (KRX 로그인)
 def kr_history(stock, base):
     """최근 약 1년치 전 종목 일별 종가·거래량 (날짜 하나에 한 번 호출, 약 250회)"""
     base_dt = datetime.strptime(base, "%Y%m%d")
@@ -244,15 +276,7 @@ def fetch_kr():
     except Exception as e:
         log("KR 수급 실패(무시)", e)
 
-    sectors, descs = {}, {}
-    try:
-        import FinanceDataReader as fdr
-        desc = fdr.StockListing("KRX-DESC")
-        codes = desc["Code"].astype(str)
-        sectors = dict(zip(codes, desc["Sector"].fillna("")))
-        descs = dict(zip(codes, desc["Sector"].fillna("") + " " + desc.get("Industry", pd.Series("", index=desc.index)).fillna("")))
-    except Exception as e:
-        log("KR 업종 정보 실패(무시)", e)
+    sectors, descs = kr_desc()
 
     rows = []
     for t, r in cap.iterrows():
@@ -283,25 +307,106 @@ def fetch_kr():
     return rows, base_dt.strftime("%Y-%m-%d")
 
 
-def fetch_kr_fallback():
-    """pykrx가 막혔을 때: FinanceDataReader로 시세·시총·거래량·하루 등락률만"""
+def naver_per_roe():
+    """네이버 금융 시가총액 페이지(코스피·코스닥 전체, 페이지당 50종목)에서 PER·ROE"""
+    import requests
+    out = {}
+    ua = {"User-Agent": "Mozilla/5.0 (stock-finder; personal study project)"}
+    for sosok in (0, 1):  # 0 코스피, 1 코스닥
+        for page in range(1, 80):
+            try:
+                r = requests.get("https://finance.naver.com/sise/sise_market_sum.naver",
+                                 params={"sosok": sosok, "page": page}, headers=ua, timeout=20)
+                r.encoding = "euc-kr"
+                html = r.text
+            except Exception as e:
+                log("네이버 실패", sosok, page, e)
+                break
+            codes = re.findall(r'code=(\d{6})" class="tltle"', html)
+            if not codes:
+                break
+            try:
+                tb = [t for t in pd.read_html(io.StringIO(html)) if "종목명" in t.columns][0]
+                tb = tb.dropna(subset=["종목명"])
+                tb = tb[tb["종목명"].astype(str).str.strip() != ""].reset_index(drop=True)
+                for code, (_, row) in zip(codes, tb.iterrows()):
+                    out[code] = (pos(row.get("PER")), num(row.get("ROE"), 1))
+            except Exception as e:
+                log("네이버 표 해석 실패", sosok, page, e)
+            time.sleep(0.3)
+    log("네이버 PER·ROE", len(out))
+    return out
+
+
+def fetch_kr_nologin():
+    """KRX 로그인 없이: FDR 종목 목록 + 야후 1년치 시세 + 네이버 PER·ROE"""
     import FinanceDataReader as fdr
-    df = fdr.StockListing("KRX")
-    rows = []
-    for _, r in df.iterrows():
-        mk = str(r.get("Market", "")).upper()
-        mk = "KOSDAQ" if mk.startswith("KOSDAQ") else "KOSPI" if mk == "KOSPI" else None
-        p = num(r.get("Close"), 0)
-        if not mk or not p:
+    import yfinance as yf
+
+    lst = fdr.StockListing("KRX")
+    lst["Market"] = lst["Market"].astype(str).str.upper()
+    lst = lst[lst["Market"].isin(["KOSPI", "KOSDAQ", "KOSDAQ GLOBAL"])].copy()
+    lst["mk"] = lst["Market"].map(lambda m: "KOSPI" if m == "KOSPI" else "KOSDAQ")
+    lst["Code"] = lst["Code"].astype(str)
+    log("KR 종목 목록", len(lst))
+
+    ysym = {c: c + (".KS" if m == "KOSPI" else ".KQ") for c, m in zip(lst["Code"], lst["mk"])}
+    closes, vols = [], []
+    syms = list(ysym.values())
+    for i in range(0, len(syms), 400):  # 400개씩 나눠 받기
+        chunk = syms[i:i + 400]
+        for attempt in range(3):
+            try:
+                px = yf.download(chunk, period="13mo", interval="1d", auto_adjust=True, group_by="column",
+                                 threads=True, progress=False)
+                closes.append(px["Close"]); vols.append(px["Volume"])
+                break
+            except Exception as e:
+                log("야후 실패, 다시 시도", i, e)
+                time.sleep(10)
+        log("KR 야후 시세", min(i + 400, len(syms)), "/", len(syms))
+        time.sleep(2)
+    C = pd.concat(closes, axis=1)
+    V = pd.concat(vols, axis=1)
+    C = C.loc[:, ~C.columns.duplicated()]
+    V = V.loc[:, ~V.columns.duplicated()]
+
+    fund = {}
+    try:
+        fund = naver_per_roe()
+    except Exception as e:
+        log("네이버 PER·ROE 실패(무시)", e)
+    sectors, descs = kr_desc()
+
+    rows, base = [], None
+    for _, r in lst.iterrows():
+        t, ys = r["Code"], ysym[r["Code"]]
+        if ys not in C:
             continue
-        row = [None] * len(FIELDS)
-        row[:12] = [str(r["Code"]), r["Name"], mk, "", p, num(r.get("Marcap"), 0), None, None, None, None,
-                    num(r.get("Volume"), 0), num(r.get("Amount"), 0)]
-        row[FIELDS.index("r1d")] = num(r.get("ChagesRatio", r.get("ChangesRatio")), 1)
-        row[FIELDS.index("fl")] = 0
-        row[FIELDS.index("th")] = theme_bits(str(r["Code"]), str(r["Name"]))
-        rows.append(row)
-    return rows, datetime.now(KST).strftime("%Y-%m-%d")
+        s = C[ys].dropna()
+        s = s[s > 0]
+        if len(s) < 2:
+            continue
+        v = V[ys].reindex(s.index)
+        p = round(float(s.iloc[-1]))
+        base = max(base, s.index[-1]) if base is not None else s.index[-1]
+        vol = num(v.iloc[-1], 0)
+        stocks = num(r.get("Stocks"), 0)
+        per, roe = fund.get(t, (None, None))
+        pbr = round(per * roe / 100, 2) if per and roe and roe > 0 else None
+        tk = tech(s, v)
+        rows.append([
+            t, r["Name"], r["mk"], (sectors.get(t) or "")[:20], p,
+            round(p * stocks) if stocks else None,
+            per, pbr, roe, None,
+            vol, round(vol * p) if vol else None,
+            *hist_returns(s),
+            *[tk[k] for k in TECH_KEYS],
+            None, None,
+            tk["fl"] or 0,
+            theme_bits(t, f"{descs.get(t, '')} {r['Name']}"),
+        ])
+    return rows, base.strftime("%Y-%m-%d") if base is not None else None
 
 
 # ---------------------------------------------------------------- 미국
@@ -328,7 +433,8 @@ def fetch_us():
     log("USD/KRW", fx)
 
     lst = sp500_list()
-    syms = [s.replace(".", "-") for s, _, _ in lst]  # BRK.B → BRK-B (야후 표기)
+    fix = {"BRKB": "BRK-B", "BFB": "BF-B"}  # 목록에 점 없이 들어오는 종목
+    syms = [fix.get(s, s.replace(".", "-")) for s, _, _ in lst]  # BRK.B → BRK-B (야후 표기)
     log("S&P500", len(syms), "종목 시세 받는 중")
     px = yf.download(syms, period="13mo", interval="1d", auto_adjust=True, group_by="column",
                      threads=True, progress=False)
@@ -343,10 +449,7 @@ def fetch_us():
                 continue
             last_d, last = s.index[-1], float(s.iloc[-1])
             base_date = max(base_date, last_d) if base_date is not None else last_d
-            rr = [round((last / float(s.iloc[-2]) - 1) * 100, 1)]  # 하루
-            for days in WINDOWS.values():
-                past = s[s.index <= last_d - pd.Timedelta(days=days)]
-                rr.append(round((last / float(past.iloc[-1]) - 1) * 100, 1) if len(past) else None)
+            rr = hist_returns(s)
             v = volume[sym].dropna()
             vol = num(v.iloc[-1], 0) if len(v) else None
             tk = tech(s, v)
@@ -399,21 +502,31 @@ def main():
             "themes": [[tid, label] for tid, label, _, _ in THEMES]}
     ok = 0
 
-    try:
-        kr, meta["base_kr"] = fetch_kr()
-        if len(kr) < 1000:
-            raise RuntimeError(f"국내 종목 수가 너무 적음: {len(kr)}")
-        ok += 1
-    except Exception:
-        traceback.print_exc()
+    kr = []
+    if os.environ.get("KRX_ID") and os.environ.get("KRX_PW"):
         try:
-            kr, meta["base_kr"] = fetch_kr_fallback()
-            meta["kr_note"] = "pykrx 실패 → 시세만 수집"
+            kr, meta["base_kr"] = fetch_kr()
+            if len(kr) < 1000:
+                raise RuntimeError(f"국내 종목 수가 너무 적음: {len(kr)}")
+            meta["kr_src"] = "krx"
+            ok += 1
+        except Exception:
+            traceback.print_exc()
+            kr = []
+    else:
+        log("KRX 로그인 정보 없음 → 로그인 없이 수집")
+    if not kr:
+        try:
+            kr, meta["base_kr"] = fetch_kr_nologin()
+            if len(kr) < 1000:
+                raise RuntimeError(f"국내 종목 수가 너무 적음: {len(kr)}")
+            meta["kr_src"] = "nologin"
             ok += 1
         except Exception:
             traceback.print_exc()
             kr = [r for r in old_rows if r[2] in ("KOSPI", "KOSDAQ")]
             meta["base_kr"] = old_meta.get("base_kr")
+            meta["kr_src"] = old_meta.get("kr_src")
     log("KR rows", len(kr))
 
     try:

@@ -31,6 +31,10 @@ jobs:
 
       - name: 데이터 수집
         run: python scripts/fetch_data.py
+        env:
+          # 저장소 Settings → Secrets and variables → Actions 에 넣어 두면 국내 전체 지표(PER·배당·수급)를 받는다
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
 
       - name: data.json 커밋
         run: |
